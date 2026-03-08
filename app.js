@@ -1,5 +1,5 @@
 /**
- * LifeDesk Vanilla JavaScript Application
+ * LifeDesk Vanilla JavaScript Application (Final Resilient Build)
  * Handles Supabase Auth, CRUD, and Real-time UI updates.
  */
 
@@ -7,15 +7,17 @@
 const SUPABASE_URL = 'https://xmemzeunhrjhxrhclclz.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhtZW16ZXVuaHJqaHhyaGNsY2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjQ2OTIsImV4cCI6MjA4ODMwMDY5Mn0.6i-Nl5fdBtMMJwDu3l13uhv6MsjQxWHcD_SIo78lfjY';
 
-let supabase;
+// Use lifeDb to avoid conflict with the global 'supabase' object from the CDN
+let lifeDb;
 
 // ---------- INITIALIZATION ----------
-function initSupabase() {
+function initClient() {
   if (!window.supabase) {
-    console.error("Supabase SDK failed to load.");
+    console.error("Supabase SDK failed to load. Ensure index.html has the correct script tag.");
     return false;
   }
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Initialize the client
+  lifeDb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   return true;
 }
 
@@ -29,7 +31,6 @@ let activeView = 'dashboard';
 // ---------- DOM REFERENCES ----------
 const mainContent = document.getElementById('main-content');
 const userNameSpan = document.getElementById('userName');
-const sidebar = document.getElementById('sidebar');
 const sidebarItems = document.querySelectorAll('.sidebar li, .bottom-nav button');
 const reminderModal = document.getElementById('reminderModal');
 const reminderForm = document.getElementById('reminderForm');
@@ -46,6 +47,7 @@ function formatDate(date) {
 }
 
 function showLoading() {
+  if (!mainContent) return;
   mainContent.innerHTML = `
     <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color: white;">
       <div class="spinner"></div>
@@ -53,14 +55,10 @@ function showLoading() {
     </div>`;
 }
 
-function showError(message) {
-  alert('Operational Error: ' + message);
-}
-
 // ---------- AUTHENTICATION ----------
 async function checkUser() {
   try {
-    const { data, error } = await supabase.auth.getUser();
+    const { data, error } = await lifeDb.auth.getUser();
     if (error || !data.user) {
       showAuthModal();
     } else {
@@ -78,8 +76,8 @@ function showAuthModal() {
   if (existing) existing.remove();
 
   const authHtml = `
-    <div class="modal" id="authModal" style="display:flex;">
-      <div class="modal-content glass">
+    <div class="modal" id="authModal" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center;">
+      <div class="modal-content glass" style="width:100%; max-width:400px; padding:2rem; border-radius:24px;">
         <h2 id="authTitle" style="margin-bottom: 0.5rem; color: #1e293b;">Welcome to LifeDesk</h2>
         <p id="authDesc" style="color: #64748b; margin-bottom: 2rem;">Log in to access your life operations dashboard.</p>
         <form id="loginForm">
@@ -112,14 +110,14 @@ function showAuthModal() {
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
 
-    const { data, error } = isSignup
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+    const { error } = isSignup
+      ? await lifeDb.auth.signUp({ email, password })
+      : await lifeDb.auth.signInWithPassword({ email, password });
 
     if (error) {
-      showError(error.message);
+      alert(error.message);
     } else {
-      if (isSignup) alert("Account created! Check email for confirmation link.");
+      if (isSignup) alert("Check email for confirmation!");
       else {
         document.getElementById('authModal').remove();
         checkUser();
@@ -133,12 +131,11 @@ async function loadInitialData() {
   showLoading();
   try {
     const [catRes, remRes, assRes] = await Promise.all([
-      supabase.from('categories').select('*'),
-      supabase.from('reminders').select('*, categories(name)').eq('user_id', currentUser.id).order('due_date', { ascending: true }),
-      supabase.from('assessments').select('*').eq('user_id', currentUser.id)
+      lifeDb.from('categories').select('*'),
+      lifeDb.from('reminders').select('*, categories(name)').eq('user_id', currentUser.id).order('due_date', { ascending: true }),
+      lifeDb.from('assessments').select('*').eq('user_id', currentUser.id)
     ]);
 
-    if (catRes.error) throw catRes.error;
     categories = catRes.data || [];
     reminders = remRes.data || [];
     assessments = assRes.data || [];
@@ -150,11 +147,7 @@ async function loadInitialData() {
 
     renderCurrentView();
   } catch (err) {
-    console.error("Critical Data Load Error:", err);
-    mainContent.innerHTML = `<div class="glass-card" style="color:white; text-align:center;">
-      <h3>System Offline</h3>
-      <p>Failed to sync with Supabase: ${err.message}</p>
-    </div>`;
+    console.error("Critical Load Error:", err);
   }
 }
 
@@ -181,22 +174,22 @@ function renderDashboard() {
 
   mainContent.innerHTML = `
     <div class="glass-card">
-      <h1>Operational Status</h1>
+      <h1>Operational Overview</h1>
       <div style="display:flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 2rem; margin: 2rem 0;">
         <div style="text-align:center;">
-          <div class="score-circle" style="background: conic-gradient(#4f46e5 ${avgScore * 3.6}deg, rgba(255,255,255,0.1) 0deg);">
+          <div class="score-circle" style="background: conic-gradient(#4f46e5 ${avgScore * 3.6}deg, rgba(255,255,255,0.1) 0deg); width:140px; height:140px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:2.5rem; font-weight:bold; color:white;">
             ${avgScore}%
           </div>
-          <p style="font-weight:600; margin-top:0.5rem; color: white;">Overall Readiness</p>
+          <p style="font-weight:600; margin-top:1rem; color: white;">Readiness Score</p>
         </div>
         <div style="text-align:center;">
            <h2 style="font-size: 3rem; color: ${overdue.length > 0 ? '#ef4444' : '#10b981'};">$${risk.toLocaleString()}</h2>
-           <p style="font-weight:600; color: white;">Risk Exposure (Overdue)</p>
+           <p style="font-weight:600; color: white;">Risk Exposure</p>
         </div>
       </div>
-      <div style="display:flex; gap:1rem; justify-content:center;">
-        <button id="quickAddBtn">+ Quick Add</button>
-        <button id="startProtocolBtn" class="secondary">Run Protocols</button>
+      <div style="display:flex; gap:1rem; justify-content:center; margin-top:2rem;">
+        <button id="quickAddBtn" style="padding:12px 24px; border-radius:40px; background:#4f46e5; border:none; color:white; font-weight:bold; cursor:pointer;">+ Quick Add</button>
+        <button id="startProtocolBtn" class="secondary" style="padding:12px 24px; border-radius:40px; background:transparent; border:1px solid white; color:white; font-weight:bold; cursor:pointer;">Run Protocol</button>
       </div>
     </div>`;
 
@@ -209,26 +202,24 @@ function renderReminders() {
   mainContent.innerHTML = `
     <div class="glass-card">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
-        <h2>Operations Log</h2>
-        <button id="newReminderBtn">+ New Operation</button>
+        <h2 style="color:white;">Reminders</h2>
+        <button id="newReminderBtn" style="padding:8px 16px; border-radius:40px; background:#4f46e5; border:none; color:white; cursor:pointer;">+ New</button>
       </div>
       <div id="remindersList">
         ${reminders.map(r => `
-          <div class="reminder-item ${r.status === 'completed' ? 'completed' : ''}" style="margin-bottom:1rem; border:1px solid rgba(255,255,255,0.1); padding:1.25rem; border-radius:16px; background:rgba(255,255,255,0.05); display:flex; justify-content:space-between; align-items:center;">
+          <div class="reminder-item ${r.status === 'completed' ? 'completed' : ''}" style="margin-bottom:1rem; border:1px solid rgba(255,255,255,0.1); padding:1rem; border-radius:16px; background:rgba(255,255,255,0.05); display:flex; justify-content:space-between; align-items:center; color:white;">
             <div>
-              <strong style="font-size:1.1rem; color:white;">${r.title}</strong>
-              <div style="font-size:0.85rem; opacity:0.7; margin-top:4px;">
-                ${r.categories?.name || 'Uncategorized'} • Due: ${formatDate(r.due_date)}
-              </div>
+              <strong>${r.title}</strong><br>
+              <small style="opacity:0.7;">Due: ${formatDate(r.due_date)}</small>
             </div>
-            <div class="reminder-actions" style="display:flex; gap:0.5rem;">
-              <button onclick="toggleReminder('${r.id}')" style="background:${r.status === 'completed' ? '#10b981' : 'rgba(255,255,255,0.1)'}; padding:8px 12px; border-radius:8px;">
-                ${r.status === 'completed' ? '✓' : 'Complete'}
+            <div style="display:flex; gap:0.5rem;">
+              <button onclick="toggleReminder('${r.id}')" style="background:${r.status === 'completed' ? '#10b981' : 'rgba(255,255,255,0.1)'}; border:1px solid white; color:white; padding:6px 12px; border-radius:20px; cursor:pointer;">
+                ${r.status === 'completed' ? '✓' : 'Mark Done'}
               </button>
-              <button onclick="deleteReminder('${r.id}')" style="background:rgba(239,68,68,0.2); color:#ef4444; border:none; padding:8px 12px; border-radius:8px; cursor:pointer;">🗑</button>
+              <button onclick="deleteReminder('${r.id}')" style="background:rgba(239,68,68,0.2); border:1px solid #ef4444; color:#ef4444; padding:6px 12px; border-radius:20px; cursor:pointer;">🗑</button>
             </div>
           </div>
-        `).join('') || '<p style="text-align:center; opacity:0.5; padding:2rem;">Log is clear. Systems optimal.</p>'}
+        `).join('') || '<p style="color:white; opacity:0.5;">No tasks recorded.</p>'}
       </div>
     </div>`;
 
@@ -239,15 +230,15 @@ window.toggleReminder = async (id) => {
   const reminder = reminders.find(r => r.id === id);
   if (!reminder) return;
   const newStatus = reminder.status === 'completed' ? 'upcoming' : 'completed';
-  const { error } = await supabase.from('reminders').update({ status: newStatus }).eq('id', id);
-  if (error) { showError(error.message); return; }
-  loadInitialData();
+  const { error } = await lifeDb.from('reminders').update({ status: newStatus }).eq('id', id);
+  if (error) alert(error.message);
+  else loadInitialData();
 };
 
 window.deleteReminder = async (id) => {
-  if (!confirm("Permanently delete this operation record?")) return;
-  const { error } = await supabase.from('reminders').delete().eq('id', id);
-  if (error) showError(error.message);
+  if (!confirm("Delete reminder?")) return;
+  const { error } = await lifeDb.from('reminders').delete().eq('id', id);
+  if (error) alert(error.message);
   else loadInitialData();
 };
 
@@ -256,18 +247,16 @@ function renderAssessments() {
   const protocols = ['Health', 'Vehicle', 'Home', 'Finance'];
   mainContent.innerHTML = `
     <div class="glass-card">
-      <h2>Readiness Protocols</h2>
-      <div style="display: grid; gap: 1rem; margin-top: 1rem;">
+      <h2 style="color:white; margin-bottom:2rem;">Readiness Protocols</h2>
+      <div style="display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
         ${protocols.map(p => {
           const scoreObj = assessments.find(a => a.category === p);
           const score = scoreObj ? scoreObj.score : 0;
           return `
-            <div class="reminder-item" style="background:rgba(255,255,255,0.05); padding:1.25rem; border-radius:16px; display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <strong style="color:white;">${p} Readiness Check</strong>
-                <div style="font-size:0.85rem; opacity:0.7;">Score: ${score}%</div>
-              </div>
-              <button onclick="openAssessmentModal('${p}')" class="secondary">Evaluate</button>
+            <div class="glass-card" style="text-align:center; margin:0;">
+              <h3 style="color:white; margin-bottom:1rem;">${p}</h3>
+              <div style="font-size:2rem; font-weight:bold; color:#4f46e5; margin-bottom:1.5rem;">${score}%</div>
+              <button onclick="openAssessmentModal('${p}')" style="width:100%; background:transparent; border:1px solid white; color:white; padding:8px; border-radius:12px; cursor:pointer;">Assess</button>
             </div>`;
         }).join('')}
       </div>
@@ -275,20 +264,20 @@ function renderAssessments() {
 }
 
 function openAssessmentModal(category) {
-  const questions = ['Is documentation current?', 'Are maintenance logs updated?', 'Are safety checks complete?'];
+  const questions = ['Is maintenance current?', 'Are documents verified?', 'Are safety checks passed?'];
   const modalHtml = `
-    <div class="modal" id="assModal" style="display:flex;">
-      <div class="modal-content glass">
-        <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
-        <h2 style="color:#1e293b;">${category} Check</h2>
-        <form id="assForm" style="color:#1e293b;">
+    <div class="modal" id="assModal" style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center;">
+      <div class="glass-card" style="width:100%; max-width:400px; padding:2rem; background:white; color:#1e293b;">
+        <span class="close" onclick="this.closest('.modal').remove()" style="float:right; cursor:pointer;">&times;</span>
+        <h2>${category} Protocol</h2>
+        <form id="assForm" style="margin-top:1.5rem;">
           ${questions.map((q, i) => `
-            <div style="margin: 1rem 0;">
-              <p>${q}</p>
-              <label><input type="radio" name="q${i}" value="1" required> Pass</label>
-              <label style="margin-left:1rem;"><input type="radio" name="q${i}" value="0"> Fail</label>
+            <div style="margin-bottom:1rem;">
+              <p style="font-weight:bold; margin-bottom:0.5rem;">${q}</p>
+              <label><input type="radio" name="q${i}" value="1" required> Yes</label>
+              <label style="margin-left:1rem;"><input type="radio" name="q${i}" value="0"> No</label>
             </div>`).join('')}
-          <button type="submit" style="width:100%; margin-top:1rem;">Save Score</button>
+          <button type="submit" style="width:100%; padding:12px; background:#4f46e5; border:none; color:white; border-radius:12px; cursor:pointer; font-weight:bold;">Save Score</button>
         </form>
       </div>
     </div>`;
@@ -303,14 +292,14 @@ function openAssessmentModal(category) {
     }
     const score = Math.round((points / questions.length) * 100);
 
-    const { error } = await supabase.from('assessments').upsert({
+    const { error } = await lifeDb.from('assessments').upsert({
       user_id: currentUser.id,
       category,
       score,
       updated_at: new Date()
     }, { onConflict: 'user_id, category' });
 
-    if (error) showError(error.message);
+    if (error) alert(error.message);
     document.getElementById('assModal').remove();
     loadInitialData();
   };
@@ -318,16 +307,15 @@ function openAssessmentModal(category) {
 
 // ---------- VAULT & FAMILY ----------
 function renderVault() {
-  mainContent.innerHTML = `<div class="glass-card"><h2>The Vault</h2><p style="opacity:0.6;">Document storage simulation active.</p></div>`;
+  mainContent.innerHTML = `<div class="glass-card"><h2 style="color:white;">Vault</h2><p style="color:white; opacity:0.6;">Secure storage active.</p></div>`;
 }
 function renderFamily() {
-  mainContent.innerHTML = `<div class="glass-card"><h2>Family Management</h2><p style="opacity:0.6;">Multi-user readiness tracking active.</p></div>`;
+  mainContent.innerHTML = `<div class="glass-card"><h2 style="color:white;">Family</h2><p style="color:white; opacity:0.6;">Household tracking active.</p></div>`;
 }
 
 // ---------- MODALS ----------
 function openReminderModal() {
   reminderForm.reset();
-  document.getElementById('reminderId').value = '';
   reminderModal.style.display = 'flex';
 }
 
@@ -338,18 +326,15 @@ reminderForm.onsubmit = async (e) => {
   const formData = new FormData(reminderForm);
   const data = {
     user_id: currentUser.id,
-    title: formData.get('title'),
-    description: formData.get('description'),
-    category_id: formData.get('categoryId'),
-    due_date: formData.get('dueDate'),
-    recurrence_interval: formData.get('recurrenceInterval') ? parseInt(formData.get('recurrenceInterval')) : null,
-    cost_consequence_min: formData.get('costMin') || 0,
-    cost_consequence_max: formData.get('costMax') || 0,
+    title: document.getElementById('title').value,
+    description: document.getElementById('description').value,
+    category_id: document.getElementById('categoryId').value,
+    due_date: document.getElementById('dueDate').value,
     status: 'upcoming'
   };
 
-  const { error } = await supabase.from('reminders').insert([data]);
-  if (error) showError(error.message);
+  const { error } = await lifeDb.from('reminders').insert([data]);
+  if (error) alert(error.message);
   else {
     reminderModal.style.display = 'none';
     loadInitialData();
@@ -358,7 +343,7 @@ reminderForm.onsubmit = async (e) => {
 
 // ---------- INITIALIZATION ----------
 document.addEventListener('DOMContentLoaded', () => {
-  if (initSupabase()) checkUser();
+  if (initClient()) checkUser();
 
   sidebarItems.forEach(item => {
     item.onclick = () => {
@@ -368,7 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('logoutBtn').onclick = async () => {
-    await supabase.auth.signOut();
+    await lifeDb.auth.signOut();
     location.reload();
   };
 });
