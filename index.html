@@ -1,18 +1,32 @@
-
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LifeDesk • Personal Life Operations</title>
-  <!-- External dependencies: date-fns for reliable date handling, Supabase client -->
+  
+  <!-- Critical: Load SDKs first -->
   <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Main stylesheet -->
+  
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* Immediate visual feedback if main-content is empty */
+    #main-content:empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 400px;
+    }
+    #main-content:empty::after {
+      content: 'Initializing Systems...';
+      color: rgba(255,255,255,0.3);
+      font-style: italic;
+    }
+  </style>
 </head>
 <body>
   <div id="app">
-    <!-- DESKTOP SIDEBAR -->
     <nav class="sidebar" id="sidebar">
       <div class="logo">LifeDesk</div>
       <ul id="nav-list">
@@ -23,15 +37,13 @@
         <li data-view="family">Family</li>
       </ul>
       <div class="user-info">
-        <span id="userName">Loading...</span>
+        <span id="userName">Syncing...</span>
         <button id="logoutBtn">Logout</button>
       </div>
     </nav>
 
-    <!-- MAIN CONTENT AREA -->
     <main id="main-content"></main>
 
-    <!-- MOBILE BOTTOM NAVIGATION -->
     <nav class="bottom-nav">
       <button data-view="dashboard">🏠</button>
       <button data-view="reminders">🔔</button>
@@ -41,53 +53,7 @@
     </nav>
   </div>
 
-  <!-- MODAL for creating/editing reminders -->
-  <div id="reminderModal" class="modal">
-    <div class="modal-content glass">
-      <span class="close">&times;</span>
-      <h2 id="modalTitle">New Reminder</h2>
-      <form id="reminderForm">
-        <input type="hidden" id="reminderId" name="reminderId">
-        
-        <label for="title">Title</label>
-        <input type="text" id="title" name="title" placeholder="e.g., Annual Health Checkup" required>
-        
-        <label for="description">Description</label>
-        <textarea id="description" name="description" placeholder="Additional details..."></textarea>
-        
-        <label for="categoryId">Category</label>
-        <select id="categoryId" name="categoryId" required>
-          <option value="">Select category</option>
-        </select>
-        
-        <label for="dueDate">Due Date</label>
-        <input type="datetime-local" id="dueDate" name="dueDate" required>
-        
-        <div class="form-row" style="display: flex; gap: 1rem;">
-          <div style="flex: 1;">
-            <label for="recurrenceInterval">Repeat (Days)</label>
-            <input type="number" id="recurrenceInterval" name="recurrenceInterval" placeholder="Optional">
-          </div>
-        </div>
-
-        <div class="form-row" style="display: flex; gap: 1rem;">
-          <div style="flex: 1;">
-            <label for="costMin">Min Risk ($)</label>
-            <input type="number" id="costMin" name="costMin" placeholder="0">
-          </div>
-          <div style="flex: 1;">
-            <label for="costMax">Max Risk ($)</label>
-            <input type="number" id="costMax" name="costMax" placeholder="0">
-          </div>
-        </div>
-        
-        <button type="submit" style="width: 100%; margin-top: 1rem;">Save Operation</button>
-      </form>
-    </div>
-  </div>
-
   <!-- Main Application Logic -->
   <script src="app.js"></script>
 </body>
-</html>
 </html>
