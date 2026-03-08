@@ -1,0 +1,15 @@
+# netlify.toml
+[build]
+  command = "echo 'No build step required'"
+  functions = "netlify/functions"
+  publish = "."
+
+[build.environment]
+  # These variables must be set in Netlify dashboard
+  SUPABASE_URL = "from Netlify env"
+  SUPABASE_ANON_KEY = "from Netlify env"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
