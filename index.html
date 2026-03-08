@@ -1,21 +1,21 @@
-<!DOCTYPE html>
+
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LifeDesk · Personal Life Operations</title>
+  <title>LifeDesk • Personal Life Operations</title>
   <!-- External dependencies: date-fns for reliable date handling, Supabase client -->
   <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Our own stylesheet -->
+  <!-- Main stylesheet -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <!-- DESKTOP SIDEBAR (hidden on mobile) -->
+    <!-- DESKTOP SIDEBAR -->
     <nav class="sidebar" id="sidebar">
       <div class="logo">LifeDesk</div>
-      <ul>
+      <ul id="nav-list">
         <li data-view="dashboard" class="active">Dashboard</li>
         <li data-view="reminders">Reminders</li>
         <li data-view="assessments">Assessments</li>
@@ -28,41 +28,66 @@
       </div>
     </nav>
 
-    <!-- MAIN CONTENT AREA (injected by JavaScript) -->
+    <!-- MAIN CONTENT AREA -->
     <main id="main-content"></main>
 
-    <!-- MOBILE BOTTOM NAVIGATION (appears only on small screens) -->
+    <!-- MOBILE BOTTOM NAVIGATION -->
     <nav class="bottom-nav">
       <button data-view="dashboard">🏠</button>
-      <button data-view="reminders">⏰</button>
-      <button data-view="assessments">📊</button>
-      <button data-view="vault">📁</button>
-      <button data-view="family">👪</button>
+      <button data-view="reminders">🔔</button>
+      <button data-view="assessments">📋</button>
+      <button data-view="vault">🔐</button>
+      <button data-view="family">👥</button>
     </nav>
   </div>
 
-  <!-- MODAL for creating/editing reminders (hidden by default) -->
+  <!-- MODAL for creating/editing reminders -->
   <div id="reminderModal" class="modal">
     <div class="modal-content glass">
       <span class="close">&times;</span>
       <h2 id="modalTitle">New Reminder</h2>
       <form id="reminderForm">
-        <input type="hidden" id="reminderId">
-        <input type="text" id="title" placeholder="Title" required>
-        <textarea id="description" placeholder="Description"></textarea>
-        <select id="categoryId" required>
+        <input type="hidden" id="reminderId" name="reminderId">
+        
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" placeholder="e.g., Annual Health Checkup" required>
+        
+        <label for="description">Description</label>
+        <textarea id="description" name="description" placeholder="Additional details..."></textarea>
+        
+        <label for="categoryId">Category</label>
+        <select id="categoryId" name="categoryId" required>
           <option value="">Select category</option>
         </select>
-        <input type="datetime-local" id="dueDate" required>
-        <input type="number" id="recurrenceInterval" placeholder="Repeat every (days)">
-        <input type="number" id="costMin" placeholder="Min cost if missed">
-        <input type="number" id="costMax" placeholder="Max cost if missed">
-        <button type="submit">Save</button>
+        
+        <label for="dueDate">Due Date</label>
+        <input type="datetime-local" id="dueDate" name="dueDate" required>
+        
+        <div class="form-row" style="display: flex; gap: 1rem;">
+          <div style="flex: 1;">
+            <label for="recurrenceInterval">Repeat (Days)</label>
+            <input type="number" id="recurrenceInterval" name="recurrenceInterval" placeholder="Optional">
+          </div>
+        </div>
+
+        <div class="form-row" style="display: flex; gap: 1rem;">
+          <div style="flex: 1;">
+            <label for="costMin">Min Risk ($)</label>
+            <input type="number" id="costMin" name="costMin" placeholder="0">
+          </div>
+          <div style="flex: 1;">
+            <label for="costMax">Max Risk ($)</label>
+            <input type="number" id="costMax" name="costMax" placeholder="0">
+          </div>
+        </div>
+        
+        <button type="submit" style="width: 100%; margin-top: 1rem;">Save Operation</button>
       </form>
     </div>
   </div>
 
-  <!-- Main JavaScript (deferred to ensure DOM is ready) -->
+  <!-- Main Application Logic -->
   <script src="app.js"></script>
 </body>
+</html>
 </html>
