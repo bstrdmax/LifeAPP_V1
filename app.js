@@ -1,538 +1,164 @@
-// ============================================================
-// LifeDesk Vanilla JavaScript Application (Refined)
-// 
-// Purpose: Manages user session, CRUD for reminders/assessments,
-//          dynamic view rendering, and real‑time readiness scores.
-// Dependencies: Supabase client, date-fns (loaded via CDN).
-// Environment: Local dev uses hardcoded keys (replace with env vars for Netlify).
-// ============================================================
+/**
+ * LifeDesk Vanilla JavaScript Application (Netlify Production Ready)
+ * Handles Supabase Auth, CRUD, and Real-time UI updates.
+ */
 
 // ---------- CONFIGURATION ----------
-// For local development, hardcode your Supabase URL and anon key.
-// When deploying to Netlify, these will be replaced by environment variables.
-const SUPABASE_URL = 'https://xmemzeunhrjhxrhclclz.supabase.co'; // Replace with your URL
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhtZW16ZXVuaHJqaHhyaGNsY2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjQ2OTIsImV4cCI6MjA4ODMwMDY5Mn0.6i-Nl5fdBtMMJwDu3l13uhv6MsjQxWHcD_SIo78lfjY'; // Replace with your anon key
+const SUPABASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? 'https://xmemzeunhrjhxrhclclz.supabase.co'
+  : 'https://xmemzeunhrjhxrhclclz.supabase.co'; 
 
-// Validate that keys are set (previons accidental empty values)
-if (!SUPABASE_URL.includes('supabase.co') || SUPABASE_ANON_KEY === 'yeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhtZW16ZXVuaHJqaHhyaGNsY2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjQ2OTIsImV4cCI6MjA4ODMwMDY5Mn0.6i-Nl5fdBtMMJwDu3l13uhv6MsjQxWHcD_SIo78lfjY') {
-  console.warn('Please set your Supabase URL and anon key in app.js');
-}
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhtZW16ZXVuaHJqaHhyaGNsY2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3MjQ2OTIsImV4cCI6MjA4ODMwMDY5Mn0.6i-Nl5fdBtMMJwDu3l13uhv6MsjQxWHcD_SIo78lfjY';
 
-// Initialize Supabase client
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ---------- GLOBAL STATE ----------
-let currentUser = null;               // Supabase user object
-let currentFamilyMemberId = null;     // null = primary user, otherwise family_members.id
-let categories = [];                  // List of life categories (from DB)
-let reminders = [];                   // User's reminders (filtered by family member)
-let assessments = [];                 // User's assessments (filtered by family member)
+let currentUser = null;
+let reminders = [];
+let assessments = [];
+let categories = [];
+let currentView = 'dashboard';
 
-// ---------- DOM ELEMENT REFERENCES ----------
+// ---------- DOM REFERENCES ----------
 const mainContent = document.getElementById('main-content');
-const sidebar = document.getElementById('sidebar');
-const sidebarItems = document.querySelectorAll('.sidebar li, .bottom-nav button');
-const logoutBtn = document.getElementById('logoutBtn');
-const modal = document.getElementById('reminderModal');
-const modalTitle = document.getElementById('modalTitle');
-const reminderForm = document.getElementById('reminderForm');
-const closeModal = document.querySelector('.close');
-const categorySelect = document.getElementById('categoryId');
 const userNameSpan = document.getElementById('userName');
+const reminderModal = document.getElementById('reminderModal');
+const reminderForm = document.getElementById('reminderForm');
+const categorySelect = document.getElementById('categoryId');
+const sidebarItems = document.querySelectorAll('.sidebar li, .bottom-nav button');
 
-// ---------- UTILITY FUNCTIONS ----------
+// ---------- UTILITIES ----------
 function formatDate(date) {
+  if (!date) return 'N/A';
   return dateFns.format(new Date(date), 'MMM d, yyyy h:mm a');
 }
 
-// Show a loading spinner inside main content
 function showLoading() {
-  mainContent.innerHTML = `<div class="spinner"></div>`;
+  mainContent.innerHTML = `
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
+      <div class="spinner"></div>
+      <p style="margin-top:1rem; color:#94a3b8;">Syncing operational data...</p>
+    </div>
+  `;
 }
 
-// Show an error message (simple alert for now, could be a toast)
 function showError(message) {
-  alert('Error: ' + message);
+  alert('Operational Error: ' + message);
 }
 
 // ---------- AUTHENTICATION ----------
-// Create a modal login/signup form (replaces the prompt)
-function showAuthModal() {
-  // Remove any existing auth modal
-  const existing = document.getElementById('authModal');
-  if (existing) existing.remove();
-
-  const authHtml = `
-    <div class="modal" id="authModal" style="display:flex;">
-      <div class="modal-content glass">
-        <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
-        <h2>Welcome to LifeDesk</h2>
-        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-          <button id="showLogin" class="secondary">Login</button>
-          <button id="showSignup" class="secondary">Sign Up</button>
-        </div>
-        <div id="authForms">
-          <!-- Login form (default visible) -->
-          <form id="loginForm">
-            <input type="email" id="loginEmail" placeholder="Email" required>
-            <input type="password" id="loginPassword" placeholder="Password" required>
-            <button type="submit">Login</button>
-          </form>
-          <!-- Signup form (hidden initially) -->
-          <form id="signupForm" style="display: none;">
-            <input type="email" id="signupEmail" placeholder="Email" required>
-            <input type="password" id="signupPassword" placeholder="Password" required>
-            <button type="submit">Sign Up</button>
-          </form>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.insertAdjacentHTML('beforeend', authHtml);
-  const authModal = document.getElementById('authModal');
-  const loginForm = document.getElementById('loginForm');
-  const signupForm = document.getElementById('signupForm');
-  const showLoginBtn = document.getElementById('showLogin');
-  const showSignupBtn = document.getElementById('showSignup');
-
-  // Toggle forms
-  showLoginBtn.addEventListener('click', () => {
-    loginForm.style.display = 'block';
-    signupForm.style.display = 'none';
-  });
-  showSignupBtn.addEventListener('click', () => {
-    loginForm.style.display = 'none';
-    signupForm.style.display = 'block';
-  });
-
-  // Login submission
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('loginEmail').value;
-    const password = document.getElementById('loginPassword').value;
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      alert('Login failed: ' + error.message);
-    } else {
-      authModal.remove();
-      checkUser(); // re-check user state
-    }
-  });
-
-  // Signup submission
-  signupForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('signupEmail').value;
-    const password = document.getElementById('signupPassword').value;
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      alert('Signup failed: ' + error.message);
-    } else {
-      alert('Check your email for confirmation!');
-      authModal.remove();
-    }
-  });
-}
-
 async function checkUser() {
   const { data: { user } } = await supabase.auth.getUser();
   if (user) {
     currentUser = user;
-    userNameSpan.innerText = user.email;
+    userNameSpan.innerText = user.email.split('@')[0];
     loadInitialData();
   } else {
     showAuthModal();
   }
 }
 
-// Logout handler
-logoutBtn.addEventListener('click', async () => {
+function showAuthModal() {
+  const existing = document.getElementById('authModal');
+  if (existing) existing.remove();
+
+  const authHtml = `
+    <div class="modal" id="authModal" style="display:flex;">
+      <div class="modal-content glass">
+        <h2 id="authTitle" style="margin-bottom: 0.5rem; color: #1e293b;">Welcome to LifeDesk</h2>
+        <p id="authDesc" style="color: #64748b; margin-bottom: 2rem;">Sign in to access your life operations dashboard.</p>
+        
+        <form id="loginForm">
+          <input type="email" id="loginEmail" placeholder="Email" required style="border: 1px solid #e2e8f0;">
+          <input type="password" id="loginPassword" placeholder="Password" required style="border: 1px solid #e2e8f0;">
+          <button type="submit" id="authSubmit" style="width: 100%;">Initialize Session</button>
+        </form>
+
+        <div style="margin-top: 1.5rem; text-align: center; font-size: 0.875rem;">
+          <a href="#" id="toggleAuthMode" style="color: var(--primary-color);">First time? Create an account</a>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', authHtml);
+  
+  const loginForm = document.getElementById('loginForm');
+  const toggleLink = document.getElementById('toggleAuthMode');
+  const authTitle = document.getElementById('authTitle');
+  const authDesc = document.getElementById('authDesc');
+  const authSubmit = document.getElementById('authSubmit');
+  let isSignup = false;
+
+  toggleLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    isSignup = !isSignup;
+    authTitle.innerText = isSignup ? 'Create Account' : 'Welcome to LifeDesk';
+    authDesc.innerText = isSignup ? 'Start your journey to full readiness.' : 'Sign in to access your life operations dashboard.';
+    authSubmit.innerText = isSignup ? 'Create Account' : 'Initialize Session';
+    toggleLink.innerText = isSignup ? 'Already have an account? Sign in' : 'First time? Create an account';
+  });
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    
+    let result;
+    if (isSignup) {
+      result = await supabase.auth.signUp({ email, password });
+      if (!result.error) alert('Check your email for confirmation!');
+    } else {
+      result = await supabase.auth.signInWithPassword({ email, password });
+    }
+
+    if (result.error) {
+      alert(result.error.message);
+    } else if (result.data.user && !isSignup) {
+      document.getElementById('authModal').remove();
+      checkUser();
+    }
+  });
+}
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
   await supabase.auth.signOut();
-  location.reload(); // reset UI
+  location.reload();
 });
 
 // ---------- DATA LOADING ----------
 async function loadInitialData() {
   showLoading();
   try {
-    await loadCategories();
-    await loadReminders();
-    await loadAssessments();
-    setActiveView('dashboard');
+    const [catRes, remRes, assRes] = await Promise.all([
+      supabase.from('categories').select('*'),
+      supabase.from('reminders').select('*, categories(name)').eq('user_id', currentUser.id).order('due_date', { ascending: true }),
+      supabase.from('assessments').select('*').eq('user_id', currentUser.id)
+    ]);
+
+    if (catRes.error) throw catRes.error;
+    if (remRes.error) throw remRes.error;
+    if (assRes.error) throw assRes.error;
+
+    categories = catRes.data;
+    reminders = remRes.data;
+    assessments = assRes.data;
+
+    categorySelect.innerHTML = '<option value="">Select category</option>' + 
+      categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    renderView(currentView);
   } catch (err) {
-    showError('Failed to load data: ' + err.message);
+    console.error("System Failure:", err);
+    mainContent.innerHTML = `<p style="color:#ef4444; padding: 2rem;">System Error: ${err.message}</p>`;
   }
-}
-
-async function loadCategories() {
-  const { data, error } = await supabase.from('categories').select('*');
-  if (error) throw error;
-  categories = data;
-  // Populate category dropdown
-  categorySelect.innerHTML = '<option value="">Select category</option>';
-  categories.forEach(c => {
-    categorySelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-  });
-}
-
-async function loadReminders() {
-  let query = supabase
-    .from('reminders')
-    .select('*, categories(name, color, icon)')
-    .eq('user_id', currentUser.id);
-  
-  if (currentFamilyMemberId) {
-    query = query.eq('family_member_id', currentFamilyMemberId);
-  } else {
-    query = query.is('family_member_id', null);
-  }
-
-  const { data, error } = await query.order('due_date', { ascending: true });
-  if (error) throw error;
-  reminders = data;
-  // Refresh current view if needed
-  const activeView = document.querySelector('.sidebar li.active')?.dataset.view;
-  if (activeView === 'reminders') renderReminders();
-  else if (activeView === 'dashboard') renderDashboard();
-}
-
-async function loadAssessments() {
-  let query = supabase
-    .from('assessments')
-    .select('*')
-    .eq('user_id', currentUser.id);
-  
-  if (currentFamilyMemberId) {
-    query = query.eq('family_member_id', currentFamilyMemberId);
-  } else {
-    query = query.is('family_member_id', null);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  assessments = data;
-  const activeView = document.querySelector('.sidebar li.active')?.dataset.view;
-  if (activeView === 'assessments') renderAssessments();
-  else if (activeView === 'dashboard') renderDashboard();
 }
 
 // ---------- VIEW RENDERING ----------
-function renderDashboard() {
-  const totalScore = assessments.reduce((acc, a) => acc + a.score, 0);
-  const avgScore = assessments.length ? Math.round(totalScore / assessments.length) : 0;
-
-  const now = new Date();
-  const overdueReminders = reminders.filter(r => 
-    r.status === 'upcoming' && new Date(r.due_date) < now
-  );
-  const riskExposure = overdueReminders.reduce((acc, r) => acc + (r.cost_consequence_min || 0), 0);
-
-  const html = `
-    <div class="glass-card">
-      <h1>Dashboard</h1>
-      <div class="score-circle" style="background: conic-gradient(#4f46e5 ${avgScore * 3.6}deg, #e2e8f0 ${avgScore * 3.6}deg 360deg);">
-        ${avgScore}%
-      </div>
-      <p class="text-center">Readiness Score</p>
-      <p class="text-center">Risk Exposure: $${riskExposure.toLocaleString()}</p>
-      <div class="flex gap-2 justify-center">
-        <button id="quickAddReminder">+ Quick Add</button>
-        <button id="quickStartAssessment">Start Assessment</button>
-      </div>
-    </div>
-    <div class="glass-card mt-2">
-      <h3>Upcoming Tasks</h3>
-      <ul>
-        ${reminders.filter(r => r.status === 'upcoming').slice(0, 5).map(r => `
-          <li>${r.title} – due ${formatDate(r.due_date)}</li>
-        `).join('')}
-      </ul>
-    </div>
-  `;
-  mainContent.innerHTML = html;
-  document.getElementById('quickAddReminder').addEventListener('click', () => openReminderModal());
-  document.getElementById('quickStartAssessment').addEventListener('click', () => setActiveView('assessments'));
-}
-
-function renderReminders() {
-  const html = `
-    <div class="glass-card">
-      <div class="flex justify-between items-center">
-        <h2>Reminders</h2>
-        <button id="newReminderBtn">+ New</button>
-      </div>
-      <div id="remindersList">
-        ${reminders.map(r => `
-          <div class="reminder-item">
-            <div>
-              <strong>${r.title}</strong> – ${r.categories?.name || 'Uncategorized'}
-              <div>Due: ${formatDate(r.due_date)}</div>
-              ${r.recurrence_interval ? `<small>Repeats every ${r.recurrence_interval} days</small>` : ''}
-              <div>Cost if missed: $${r.cost_consequence_min || 0} - $${r.cost_consequence_max || 0}</div>
-            </div>
-            <div class="reminder-actions">
-              <button class="complete-btn" data-id="${r.id}" title="Complete">✓</button>
-              <button class="edit-btn" data-id="${r.id}" title="Edit">✎</button>
-              <button class="delete-btn" data-id="${r.id}" title="Delete">🗑</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-  mainContent.innerHTML = html;
-  document.getElementById('newReminderBtn').addEventListener('click', () => openReminderModal());
-  
-  document.querySelectorAll('.complete-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.target.dataset.id;
-      await completeReminder(id);
-    });
-  });
-  document.querySelectorAll('.edit-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = e.target.dataset.id;
-      const reminder = reminders.find(r => r.id == id);
-      openReminderModal(reminder);
-    });
-  });
-  document.querySelectorAll('.delete-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.target.dataset.id;
-      if (confirm('Delete reminder?')) {
-        const { error } = await supabase.from('reminders').delete().eq('id', id);
-        if (error) showError('Error deleting: ' + error.message);
-        else loadReminders();
-      }
-    });
-  });
-}
-
-function renderAssessments() {
-  const categoriesList = ['Health', 'Vehicle', 'Home', 'Finance'];
-  const html = `
-    <div class="glass-card">
-      <h2>Readiness Assessments</h2>
-      <p>Select a category to assess:</p>
-      ${categoriesList.map(cat => {
-        const assessment = assessments.find(a => a.category === cat);
-        return `
-          <div class="flex justify-between items-center mt-2">
-            <strong>${cat}</strong>
-            <span>${assessment ? assessment.score + '%' : 'Not assessed'}</span>
-            <button class="assess-btn secondary" data-cat="${cat}">${assessment ? 'Update' : 'Start'}</button>
-          </div>
-        `;
-      }).join('')}
-    </div>
-  `;
-  mainContent.innerHTML = html;
-  document.querySelectorAll('.assess-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const category = e.target.dataset.cat;
-      openAssessmentModal(category);
-    });
-  });
-}
-
-function renderVault() {
-  mainContent.innerHTML = `
-    <div class="glass-card">
-      <h2>The Vault</h2>
-      <p>Upload documents (simulated). Expiration dates will be detected.</p>
-      <input type="file" id="fileUpload" multiple>
-      <button id="uploadBtn">Upload</button>
-      <div id="uploadedFiles"></div>
-    </div>
-  `;
-  document.getElementById('uploadBtn').addEventListener('click', () => {
-    alert('In production, this would upload to Supabase Storage and trigger OCR via a Netlify function.');
-  });
-}
-
-async function renderFamily() {
-  const { data: members, error } = await supabase
-    .from('family_members')
-    .select('*')
-    .eq('user_id', currentUser.id);
-  if (error) showError('Could not load family members');
-
-  const html = `
-    <div class="glass-card">
-      <h2>Family</h2>
-      <p>Current: ${currentFamilyMemberId ? 'Family member' : 'Primary user'}</p>
-      <div class="flex flex-col gap-1">
-        <button id="switchPrimary" class="secondary">Switch to Primary</button>
-        ${members?.map(m => `
-          <button class="switch-member secondary" data-id="${m.id}">Switch to ${m.name}</button>
-        `).join('')}
-      </div>
-    </div>
-  `;
-  mainContent.innerHTML = html;
-  document.getElementById('switchPrimary').addEventListener('click', () => {
-    currentFamilyMemberId = null;
-    loadInitialData();
-  });
-  document.querySelectorAll('.switch-member').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      currentFamilyMemberId = e.target.dataset.id;
-      loadInitialData();
-    });
-  });
-}
-
-// ---------- REMINDER COMPLETION & RECURRENCE ----------
-async function completeReminder(id) {
-  const reminder = reminders.find(r => r.id == id);
-  if (!reminder) return;
-
-  const { error: updateError } = await supabase
-    .from('reminders')
-    .update({ status: 'completed' })
-    .eq('id', id);
-  if (updateError) {
-    showError('Error completing reminder: ' + updateError.message);
-    return;
-  }
-
-  if (reminder.recurrence_interval) {
-    const nextDue = dateFns.addDays(new Date(reminder.due_date), reminder.recurrence_interval);
-    const { error: insertError } = await supabase
-      .from('reminders')
-      .insert({
-        user_id: reminder.user_id,
-        family_member_id: reminder.family_member_id,
-        category_id: reminder.category_id,
-        title: reminder.title,
-        description: reminder.description,
-        due_date: nextDue,
-        recurrence_interval: reminder.recurrence_interval,
-        cost_consequence_min: reminder.cost_consequence_min,
-        cost_consequence_max: reminder.cost_consequence_max,
-        status: 'upcoming'
-      });
-    if (insertError) showError('Error creating next reminder: ' + insertError.message);
-  }
-  loadReminders();
-}
-
-// ---------- MODAL HANDLING ----------
-function openReminderModal(reminder = null) {
-  modalTitle.innerText = reminder ? 'Edit Reminder' : 'New Reminder';
-  if (reminder) {
-    document.getElementById('reminderId').value = reminder.id;
-    document.getElementById('title').value = reminder.title;
-    document.getElementById('description').value = reminder.description;
-    document.getElementById('categoryId').value = reminder.category_id;
-    document.getElementById('dueDate').value = dateFns.format(new Date(reminder.due_date), "yyyy-MM-dd'T'HH:mm");
-    document.getElementById('recurrenceInterval').value = reminder.recurrence_interval || '';
-    document.getElementById('costMin').value = reminder.cost_consequence_min || '';
-    document.getElementById('costMax').value = reminder.cost_consequence_max || '';
-  } else {
-    reminderForm.reset();
-    document.getElementById('reminderId').value = '';
-  }
-  modal.style.display = 'flex';
-}
-
-closeModal.addEventListener('click', () => modal.style.display = 'none');
-window.addEventListener('click', (e) => {
-  if (e.target === modal) modal.style.display = 'none';
-});
-
-reminderForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const formData = new FormData(reminderForm);
-  const reminderData = {
-    user_id: currentUser.id,
-    family_member_id: currentFamilyMemberId,
-    category_id: formData.get('categoryId'),
-    title: formData.get('title'),
-    description: formData.get('description'),
-    due_date: formData.get('dueDate'),
-    recurrence_interval: formData.get('recurrenceInterval') || null,
-    cost_consequence_min: formData.get('costMin') || null,
-    cost_consequence_max: formData.get('costMax') || null,
-    status: 'upcoming'
-  };
-  const id = formData.get('reminderId');
-  let error;
-  if (id) {
-    ({ error } = await supabase.from('reminders').update(reminderData).eq('id', id));
-  } else {
-    ({ error } = await supabase.from('reminders').insert(reminderData));
-  }
-  if (error) {
-    showError('Error saving reminder: ' + error.message);
-  } else {
-    modal.style.display = 'none';
-    loadReminders();
-    setActiveView('reminders');
-  }
-});
-
-// ---------- ASSESSMENT MODAL ----------
-function openAssessmentModal(category) {
-  const questions = {
-    Health: ['Do you have a primary care physician?', 'Are your vaccinations up to date?'],
-    Vehicle: ['Is your oil change due within 500 miles?', 'Are your tires properly inflated?'],
-    Home: ['Have you tested smoke detectors recently?', 'Is your HVAC filter clean?'],
-    Finance: ['Do you have an emergency fund?', 'Have you reviewed your credit report?']
-  };
-  const qList = questions[category] || ['Question 1?', 'Question 2?'];
-
-  const modalHtml = `
-    <div class="modal" id="assessmentModal" style="display:flex;">
-      <div class="modal-content glass">
-        <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
-        <h2>${category} Assessment</h2>
-        <form id="assessmentForm">
-          ${qList.map((q, i) => `
-            <div class="mt-2">
-              <p>${q}</p>
-              <label><input type="radio" name="q${i}" value="yes" required> Yes</label>
-              <label><input type="radio" name="q${i}" value="no"> No</label>
-            </div>
-          `).join('')}
-          <button type="submit" class="mt-3">Save Score</button>
-        </form>
-      </div>
-    </div>
-  `;
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
-  const assessmentModal = document.getElementById('assessmentModal');
-  
-  assessmentModal.querySelector('.close').addEventListener('click', () => assessmentModal.remove());
-  
-  assessmentModal.querySelector('#assessmentForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    let yesCount = 0;
-    for (let i = 0; i < qList.length; i++) {
-      if (formData.get(`q${i}`) === 'yes') yesCount++;
-    }
-    const score = Math.round((yesCount / qList.length) * 100);
-    
-    const { error } = await supabase.from('assessments').upsert({
-      user_id: currentUser.id,
-      family_member_id: currentFamilyMemberId,
-      category,
-      score,
-      answers: Object.fromEntries(formData),
-      updated_at: new Date()
-    }, { onConflict: 'user_id, family_member_id, category' }); // Specify conflict columns
-    
-    if (error) showError('Error saving: ' + error.message);
-    assessmentModal.remove();
-    loadAssessments();
-  });
-}
-
-// ---------- VIEW ROUTING ----------
-function setActiveView(view) {
+function renderView(view) {
+  currentView = view;
   sidebarItems.forEach(item => item.classList.remove('active'));
   document.querySelectorAll(`[data-view="${view}"]`).forEach(el => el.classList.add('active'));
+
   switch (view) {
     case 'dashboard': renderDashboard(); break;
     case 'reminders': renderReminders(); break;
@@ -542,39 +168,265 @@ function setActiveView(view) {
   }
 }
 
-sidebarItems.forEach(item => {
-  item.addEventListener('click', () => {
-    const view = item.dataset.view;
-    setActiveView(view);
-  });
-});
+function renderDashboard() {
+  const avgScore = assessments.length ? Math.round(assessments.reduce((a, b) => a + b.score, 0) / assessments.length) : 0;
+  
+  const now = new Date();
+  const overdue = reminders.filter(r => new Date(r.due_date) < now && r.status !== 'completed');
+  const riskExposure = overdue.reduce((acc, r) => acc + (Number(r.cost_consequence_min) || 0), 0);
 
-// ---------- MOBILE SIDEBAR TOGGLE ----------
-// Add a hamburger button to open the sidebar on mobile (if needed)
-const mobileMenuBtn = document.createElement('button');
-mobileMenuBtn.innerHTML = '☰';
-mobileMenuBtn.id = 'mobileMenuBtn';
-mobileMenuBtn.style.position = 'fixed';
-mobileMenuBtn.style.top = '1rem';
-mobileMenuBtn.style.left = '1rem';
-mobileMenuBtn.style.zIndex = '1000';
-mobileMenuBtn.style.display = 'none'; // Hidden on desktop, shown via media query
-document.body.appendChild(mobileMenuBtn);
+  mainContent.innerHTML = `
+    <div class="glass-card">
+      <h1>Operational Overview</h1>
+      <div style="display:flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 2rem;">
+        <div style="text-align:center;">
+          <div class="score-circle" style="background: conic-gradient(var(--primary-color) ${avgScore * 3.6}deg, rgba(255,255,255,0.1) 0deg);">
+            ${avgScore}%
+          </div>
+          <p style="font-weight:600; margin-top:0.5rem;">Readiness Score</p>
+        </div>
+        <div style="text-align:center;">
+           <h2 style="font-size: 3rem; color: ${overdue.length > 0 ? '#ef4444' : '#10b981'};">$${riskExposure.toLocaleString()}</h2>
+           <p style="font-weight:600;">Risk Exposure</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="glass-card">
+      <h3>Immediate Priorities</h3>
+      <div style="margin-top:1rem;">
+        ${reminders.filter(r => r.status !== 'completed').slice(0, 4).map(r => `
+          <div style="padding:1rem; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <p style="font-weight:600; color:white;">${r.title}</p>
+              <small style="color:#94a3b8;">${formatDate(r.due_date)}</small>
+            </div>
+            <span style="font-size:0.75rem; background:rgba(99,102,241,0.2); padding:2px 8px; border-radius:10px; color:#a5b4fc;">
+              ${r.categories?.name || 'Gen'}
+            </span>
+          </div>
+        `).join('') || '<p style="color:#94a3b8; text-align:center;">No pending risks detected.</p>'}
+      </div>
+    </div>
+  `;
+}
 
-mobileMenuBtn.addEventListener('click', () => {
-  sidebar.classList.toggle('open');
-});
+function renderReminders() {
+  mainContent.innerHTML = `
+    <div class="glass-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+        <h2>Operational Log</h2>
+        <button id="addReminderBtn">+ New Operation</button>
+      </div>
+      <div id="remindersContainer">
+        ${reminders.map(r => `
+          <div class="reminder-item ${r.status === 'completed' ? 'completed' : ''}">
+            <div style="flex: 1;">
+              <strong>${r.title}</strong>
+              <div style="font-size:0.8rem; margin-top:0.2rem; opacity:0.8;">
+                ${r.categories?.name} • Due: ${formatDate(r.due_date)}
+                ${r.recurrence_interval ? ` • 🔁 ${r.recurrence_interval}d` : ''}
+              </div>
+            </div>
+            <div class="reminder-actions">
+              <button onclick="toggleComplete('${r.id}')" style="background:${r.status === 'completed' ? '#10b981' : 'rgba(255,255,255,0.1)'};">
+                ${r.status === 'completed' ? '✓' : 'Complete'}
+              </button>
+              <button onclick="deleteReminder('${r.id}')" style="background:rgba(239,68,68,0.2); color:#ef4444; border-color:transparent;">🗑</button>
+            </div>
+          </div>
+        `).join('') || '<p style="text-align:center; padding:2rem; color:#94a3b8;">The log is empty.</p>'}
+      </div>
+    </div>
+  `;
+  document.getElementById('addReminderBtn').onclick = () => {
+    reminderForm.reset();
+    document.getElementById('reminderId').value = '';
+    reminderModal.style.display = 'flex';
+  };
+}
 
-// Show mobile menu button only on small screens (CSS will handle)
-const style = document.createElement('style');
-style.textContent = `
-  @media (max-width: 768px) {
-    #mobileMenuBtn {
-      display: block !important;
-    }
+function renderAssessments() {
+  const categoriesList = ['Health', 'Vehicle', 'Home', 'Finance'];
+  mainContent.innerHTML = `
+    <div class="glass-card">
+      <h2>Readiness Assessments</h2>
+      <p style="color: #94a3b8; margin-bottom: 2rem;">Run protocols to determine your operational integrity.</p>
+      <div style="display: grid; gap: 1rem;">
+        ${categoriesList.map(cat => {
+          const assessment = assessments.find(a => a.category === cat);
+          return `
+            <div class="reminder-item">
+              <div style="flex:1;">
+                <strong>${cat} Protocol</strong>
+                <p style="font-size: 0.85rem; opacity: 0.7;">Status: ${assessment ? assessment.score + '%' : 'Unverified'}</p>
+              </div>
+              <button onclick="openAssessmentModal('${cat}')" class="secondary">
+                ${assessment ? 'Re-Evaluate' : 'Initialize'}
+              </button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderVault() {
+  mainContent.innerHTML = `
+    <div class="glass-card">
+      <h2>The Vault</h2>
+      <p style="color:#94a3b8; margin-bottom:2rem;">Secure document storage for critical life operations.</p>
+      <div style="border: 2px dashed var(--border-light); padding: 4rem; text-align:center; border-radius: 20px; background: rgba(255,255,255,0.02);">
+        <p>Drop critical documents here</p>
+        <button class="secondary" style="margin-top:1rem;">Select Files</button>
+        <p style="font-size: 0.75rem; color: #64748b; margin-top: 1rem;">OCR & Expiry detection module offline</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderFamily() {
+  mainContent.innerHTML = `
+    <div class="glass-card">
+      <h2>Family Management</h2>
+      <p style="color:#94a3b8; margin-bottom:2rem;">Manage readiness for your entire household.</p>
+      <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:1rem;">
+        <div class="glass-card" style="text-align:center; padding:1.5rem; border-style:dashed; opacity:0.6; cursor: pointer;">
+          <p>+ Add Family Member</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- ACTIONS ----------
+window.toggleComplete = async (id) => {
+  const reminder = reminders.find(r => r.id === id);
+  if (!reminder) return;
+
+  const newStatus = reminder.status === 'completed' ? 'upcoming' : 'completed';
+  const { error } = await supabase.from('reminders').update({ status: newStatus }).eq('id', id);
+  
+  if (error) {
+    showError(error.message);
+    return;
   }
-`;
-document.head.appendChild(style);
 
-// ---------- INITIALIZATION ----------
+  // Handle Recurrence Logic
+  if (newStatus === 'completed' && reminder.recurrence_interval) {
+    const nextDue = dateFns.addDays(new Date(reminder.due_date), reminder.recurrence_interval);
+    const { error: nextError } = await supabase.from('reminders').insert([{
+      user_id: currentUser.id,
+      title: reminder.title,
+      description: reminder.description,
+      category_id: reminder.category_id,
+      due_date: nextDue.toISOString(),
+      recurrence_interval: reminder.recurrence_interval,
+      cost_consequence_min: reminder.cost_consequence_min,
+      cost_consequence_max: reminder.cost_consequence_max,
+      status: 'upcoming'
+    }]);
+    if (nextError) console.error("Recurrence scheduling failed:", nextError);
+  }
+
+  loadInitialData();
+};
+
+window.deleteReminder = async (id) => {
+  if (!confirm("Permanently abort this operation?")) return;
+  const { error } = await supabase.from('reminders').delete().eq('id', id);
+  if (error) showError(error.message);
+  else loadInitialData();
+};
+
+window.openAssessmentModal = (category) => {
+  const questions = {
+    Health: ['Primary care physician active?', 'Vaccinations verified?', 'Last checkup within 12 months?'],
+    Vehicle: ['Oil service current?', 'Tire pressure verified?', 'Insurance updated?'],
+    Home: ['Smoke detectors tested?', 'HVAC filters replaced?', 'Emergency kit stocked?'],
+    Finance: ['Emergency fund > 3 months?', 'Credit score reviewed?', 'Tax liabilities set?']
+  };
+  const qList = questions[category] || ['Requirement 1 verified?', 'Requirement 2 verified?'];
+
+  const modalHtml = `
+    <div class="modal" id="assessmentModal" style="display:flex;">
+      <div class="modal-content glass">
+        <span class="close" onclick="this.closest('.modal').remove()">&times;</span>
+        <h2>${category} Protocol</h2>
+        <form id="assessmentForm">
+          ${qList.map((q, i) => `
+            <div style="margin-top:1.2rem;">
+              <p style="margin-bottom:0.5rem; font-weight:500;">${q}</p>
+              <label><input type="radio" name="q${i}" value="yes" required> Verified</label>
+              <label style="margin-left:1rem;"><input type="radio" name="q${i}" value="no"> Failed</label>
+            </div>
+          `).join('')}
+          <button type="submit" style="width:100%; margin-top:2rem;">Save Score</button>
+        </form>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  
+  const assessmentForm = document.getElementById('assessmentForm');
+  assessmentForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(assessmentForm);
+    let score = 0;
+    for (let i = 0; i < qList.length; i++) {
+      if (formData.get(`q${i}`) === 'yes') score++;
+    }
+    const finalScore = Math.round((score / qList.length) * 100);
+
+    const { error } = await supabase.from('assessments').upsert({
+      user_id: currentUser.id,
+      category: category,
+      score: finalScore,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id, category' });
+
+    if (error) showError(error.message);
+    document.getElementById('assessmentModal').remove();
+    loadInitialData();
+  });
+};
+
+reminderForm.onsubmit = async (e) => {
+  e.preventDefault();
+  const formData = new FormData(reminderForm);
+  const data = {
+    user_id: currentUser.id,
+    title: formData.get('title'),
+    description: formData.get('description'),
+    category_id: formData.get('categoryId'),
+    due_date: formData.get('dueDate'),
+    recurrence_interval: formData.get('recurrenceInterval') ? parseInt(formData.get('recurrenceInterval')) : null,
+    cost_consequence_min: formData.get('costMin') || 0,
+    cost_consequence_max: formData.get('costMax') || 0,
+    status: 'upcoming'
+  };
+
+  const { error } = await supabase.from('reminders').insert([data]);
+  if (error) showError(error.message);
+  else {
+    reminderModal.style.display = 'none';
+    loadInitialData();
+  }
+};
+
+// ---------- INITIALIZE ----------
+document.querySelectorAll('.close').forEach(btn => {
+  btn.onclick = () => {
+    reminderModal.style.display = 'none';
+    const assModal = document.getElementById('assessmentModal');
+    if (assModal) assModal.remove();
+  };
+});
+
+sidebarItems.forEach(item => {
+  item.onclick = () => renderView(item.dataset.view);
+});
+
+checkUser();-------
 checkUser();
