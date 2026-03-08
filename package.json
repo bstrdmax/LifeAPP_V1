@@ -1,0 +1,12 @@
+{
+  "name": "lifedesk-pro",
+  "version": "1.0.0",
+  "description": "Personal Life Operations Management",
+  "main": "index.html",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
